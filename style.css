@@ -1,0 +1,15 @@
+#map {
+  height: 1024px;
+}
+
+.leaflet-image-layer {
+  image-rendering: pixelated;
+}
+
+.leaflet-tile {
+  color: red;
+  font-size: 12px;
+  font-weight: bold;
+  image-rendering: pixelated;
+}
+
