@@ -4,6 +4,7 @@
 Create square tiles using zone images from the game.
 """
 
+import math
 from PIL import Image
 from pathlib import Path
 from tqdm import tqdm
@@ -100,6 +101,10 @@ pbar_iterator = iter(pbar := tqdm(range(num_tiles)))
 
 for x in range(0, MAP_WIDTH_PX // TILE_LENGTH):
     for y in range(0, MAP_HEIGHT_PX // TILE_LENGTH):
+        if (outpath := outdir / f"tile_0_{x}_{y}.webp").exists():
+            next(pbar_iterator)
+            continue
+
         pixel_x = x * TILE_LENGTH
         pixel_y = y * TILE_LENGTH
 
@@ -107,5 +112,38 @@ for x in range(0, MAP_WIDTH_PX // TILE_LENGTH):
         lower_corner = (pixel_x + TILE_LENGTH, pixel_y + TILE_LENGTH)
 
         tile = fetch_rectangle(upper_corner, lower_corner)
-        tile.save(outdir / f"tile_{x}_{y}.webp", lossless=True)
+        tile.save(outpath, lossless=True)
+        i = next(pbar_iterator)
+
+# Recombine tiles into next tier
+SCALE_FACTOR = 4
+LARGE_TILE_LENGTH = TILE_LENGTH * SCALE_FACTOR
+
+num_tiles = math.ceil(MAP_HEIGHT_PX / LARGE_TILE_LENGTH) * math.ceil(MAP_WIDTH_PX / LARGE_TILE_LENGTH)
+pbar_iterator = iter(tqdm(range(num_tiles)))
+
+for x in range(0, math.ceil(MAP_WIDTH_PX / LARGE_TILE_LENGTH)):
+    for y in range(0, math.ceil(MAP_HEIGHT_PX / LARGE_TILE_LENGTH)):
+        if (outpath := outdir / f"tile_1_{x}_{y}.webp").exists():
+            continue
+
+        tile = Image.new("RGBA", (TILE_LENGTH, TILE_LENGTH), (255, 0, 0, 0))
+
+        tile_x_start = 4 * x
+        tile_x_end = min(4 * x + 4, MAP_WIDTH_PX // TILE_LENGTH)
+        tile_y_start = 4 * y
+        tile_y_end = min(4 * y + 4, MAP_HEIGHT_PX // TILE_LENGTH)
+
+        for tile_x in range(tile_x_start, tile_x_end):
+            for tile_y in range(tile_y_start, tile_y_end):
+                subtile_path = outdir / f"tile_0_{tile_x}_{tile_y}.webp"
+
+                corner_x = (tile_x - tile_x_start) * (TILE_LENGTH // SCALE_FACTOR)
+                corner_y = (tile_y - tile_y_start) * (TILE_LENGTH // SCALE_FACTOR)
+
+                subtile = Image.open(subtile_path)
+                subtile = subtile.resize((TILE_LENGTH // SCALE_FACTOR, TILE_LENGTH // SCALE_FACTOR), Image.Resampling.LANCZOS)
+                tile.paste(subtile, (corner_x, corner_y))
+
+        tile.save(outpath)
         i = next(pbar_iterator)

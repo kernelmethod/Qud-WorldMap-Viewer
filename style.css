@@ -2,7 +2,8 @@
   height: 1024px;
 }
 
-.leaflet-image-layer {
+.pixel-perfect .leaflet-image-layer,
+.pixel-perfect .leaflet-tile {
   image-rendering: pixelated;
 }
 
@@ -10,6 +11,5 @@
   color: red;
   font-size: 12px;
   font-weight: bold;
-  image-rendering: pixelated;
 }
 

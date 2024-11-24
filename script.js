@@ -5,7 +5,8 @@ const mapEl = document.getElementById("map");
 
 /* Zoom level at which we should transition away from the world map
  * overlay and switch to tiles. */
-const worldZoomThreshold = 4;
+const tileZoomThreshold_L1 = 3;
+const tileZoomThreshold_L0 = tileZoomThreshold_L1 + 2;
 
 /* Zoom level at which we should apply pixelated image rendering
  * for tiles. */
@@ -14,10 +15,16 @@ const pixelatedZoomThreshold = 6;
 const worldMapPixelWidth = 80 * 16;
 const worldMapPixelHeight = 25 * 24;
 
-// const tiledMapPixelWidth = 80 * 3 * 80 * 16;
-// const tiledMapPixelHeight = 25 * 3 * 25 * 24;
-const tiledMapPixelWidth = 8192;
-const tiledMapPixelHeight = 1200;
+const tiledMapWidth_L1 = 128;
+const tiledMapHeight_L1 = 19;
+
+const tiledMapWidth_L0 = 512;
+const tiledMapHeight_L0 = 75;
+
+// const tiledMapPixelWidth = tiledMapWidth_L0 * 16;
+// const tiledMapPixelHeight = tiledMapHeight_L0 * 16;
+const tiledMapPixelWidth_L1 = tiledMapWidth_L1 * 32;
+const tiledMapPixelHeight_L1 = tiledMapHeight_L1 * 32;
 
 function clamp(num, min, max) {
     if (max !== null && num > max)
@@ -25,21 +32,6 @@ function clamp(num, min, max) {
     if (min !== null && num < min)
         return min;
     return num;
-}
-
-function getTileCoords(coords) {
-    let x = coords.x;
-    let y = coords.y;
-    let z = clamp(coords.z - worldZoomThreshold, 0, null);
-
-    let normalization = 2**z;
-    x = Math.floor(x / normalization);
-    y = 75 + Math.floor(y / normalization);
-
-    return {
-        x: x,
-        y: y
-    }
 }
 
 var bounds = [[0, 0], [worldMapPixelHeight, worldMapPixelWidth]];
@@ -60,45 +52,68 @@ var startZoom = map.getZoom();
 map.on("zoomstart", function() {
     startCoords = map.getCenter();
     startZoom = map.getZoom();
-
-    console.log("start zoom: " + map.getZoom());
 });
 
 map.on("zoomend", function()  {
-    console.log("coords: " + startCoords.lng + " " + startCoords.lat);
-    if (map.getZoom() >= worldZoomThreshold && map.hasLayer(worldMapOverlay)) {
+    if (map.getZoom() >= tileZoomThreshold_L1 && map.hasLayer(worldMapOverlay)) {
         // Based on the previous coordinates, pan to the corresponding location
         // in the tiled map.
-        let fracX = startCoords.lng / worldMapPixelWidth;
-        let fracY = startCoords.lat / worldMapPixelHeight;
-        console.log("transition frac: " + fracX + " " + fracY);
+        let coords = map.getCenter();
+        let fracX = coords.lng / worldMapPixelWidth;
+        let fracY = coords.lat / worldMapPixelHeight;
 
-        let tiledMapX = fracX * tiledMapPixelWidth
-        let tiledMapY = fracY * tiledMapPixelHeight
+        let tiledMapX = fracX * tiledMapPixelWidth_L1;
+        let tiledMapY = fracY * tiledMapPixelHeight_L1;
 
-        map.panTo([tiledMapY, tiledMapX]);
+        map.panTo([tiledMapY, tiledMapX], {
+            animate: false
+        });
 
         map.removeLayer(worldMapOverlay);
     }
-    if (map.getZoom() < worldZoomThreshold && !map.hasLayer(worldMapOverlay)) {
+    if (map.getZoom() < tileZoomThreshold_L1 && !map.hasLayer(worldMapOverlay)) {
         // Based on the previous coordinates, pan to the corresponding location
         // in the world map.
-        let fracX = startCoords.lng / tiledMapPixelWidth;
-        let fracY = startCoords.lat / tiledMapPixelHeight;
-        console.log("transition frac: " + fracX + " " + fracY);
+        let coords = map.getCenter();
+        let fracX = coords.lng / tiledMapPixelWidth_L1;
+        let fracY = coords.lat / tiledMapPixelHeight_L1;
 
         let worldMapX = fracX * worldMapPixelWidth;
         let worldMapY = fracY * worldMapPixelHeight;
 
-        map.panTo([worldMapY, worldMapX]);
+        map.panTo([worldMapY, worldMapX], {
+            animate: false
+        });
 
         map.addLayer(worldMapOverlay);
     }
 
-    if (map.getZoom() >= pixelatedZoomThreshold || map.getZoom() < worldZoomThreshold) {
+    // When transitioning from L1 to L0 there's a small shift that we need to correct for
+    if (map.getZoom() >= tileZoomThreshold_L0 && startZoom < tileZoomThreshold_L0) {
+        let panRatio = 1 / 75;
+        let coords = map.getCenter();
+        let yDelta = tiledMapPixelHeight_L1 * panRatio;
+        map.panTo([coords.lat - yDelta, coords.lng], {
+            animate: false
+        });
+    }
+    if (map.getZoom() < tileZoomThreshold_L0 && startZoom >= tileZoomThreshold_L0) {
+        let panRatio = 1 / 76;
+        let coords = map.getCenter();
+        let yDelta = tiledMapPixelHeight_L1 * panRatio;
+        map.panTo([coords.lat + yDelta, coords.lng], {
+            animate: false
+        });
+    }
+
+    // When we get close enough to the individual tiles, use nearest-neighbor image scaling
+    // to make the tiles look the same way they look in-game.
+    //
+    // We also add nearest-neighbor scaling to the world map for the same resaon.
+    if (map.getZoom() >= pixelatedZoomThreshold || map.getZoom() < tileZoomThreshold_L1) {
         mapEl.classList.add("pixel-perfect");
     }
-    if (map.getZoom() < pixelatedZoomThreshold && map.getZoom() >= worldZoomThreshold) {
+    if (map.getZoom() < pixelatedZoomThreshold && map.getZoom() >= tileZoomThreshold_L1) {
         mapEl.classList.remove("pixel-perfect");
     }
 });
@@ -108,13 +123,12 @@ map.on("zoomend", function()  {
 var worldMapOverlay = L.imageOverlay("worldmap/world.webp", bounds);
 worldMapOverlay.addTo(map);
 
-/*
 L.TileLayer.Qud1 = L.TileLayer.extend({
     options: {
-        minNativeZoom: worldZoomThreshold,
-        maxNativeZoom: worldZoomThreshold,
-        minZoom: worldZoomThreshold,
-        maxZoom: worldZoomThreshold + 2,
+        minNativeZoom: tileZoomThreshold_L1,
+        maxNativeZoom: tileZoomThreshold_L1,
+        minZoom: tileZoomThreshold_L1,
+        maxZoom: tileZoomThreshold_L0
     },
 
     initialize: function (options) {
@@ -122,9 +136,15 @@ L.TileLayer.Qud1 = L.TileLayer.extend({
     },
 
     getTileUrl: function(coords) {
-        let tileCoords = getTileCoords(coords);
+        let x = coords.x;
+        let y = coords.y;
+        let z = clamp(coords.z - tileZoomThreshold_L1, 0, null);
 
-        return `/tiles/tile_1_${tileCoords.x}_${tileCoords.y}.webp`;
+        let normalization = 2**z;
+        x = Math.floor(x / normalization);
+        y = tiledMapHeight_L1 + Math.floor(y / normalization);
+
+        return `/tiles/tile_1_${x}_${y}.webp`;
     },
     getAttribution: function() {
         return attribution;
@@ -136,13 +156,12 @@ L.tileLayer.qud1 = function() {
 }
 
 L.tileLayer.qud1().addTo(map);
-*/
 
 L.TileLayer.Qud0 = L.TileLayer.extend({
     options: {
-        minNativeZoom: worldZoomThreshold,
-        maxNativeZoom: worldZoomThreshold,
-        minZoom: worldZoomThreshold,
+        minNativeZoom: tileZoomThreshold_L0,
+        maxNativeZoom: tileZoomThreshold_L0,
+        minZoom: tileZoomThreshold_L0,
     },
 
     initialize: function (options) {
@@ -150,9 +169,16 @@ L.TileLayer.Qud0 = L.TileLayer.extend({
     },
 
     getTileUrl: function(coords) {
-        let tileCoords = getTileCoords(coords);
+        let x = coords.x;
+        let y = coords.y;
+        let z = clamp(coords.z - tileZoomThreshold_L0, 0, null);
 
-        return `/tiles/tile_0_${tileCoords.x}_${tileCoords.y}.webp`;
+        let normalization = 2**z;
+        x = Math.floor(x / normalization);
+        y = tiledMapHeight_L0 + Math.floor(y / normalization);
+
+        const url = `/tiles/tile_0_${x}_${y}.webp`;
+        return url;
     },
     getAttribution: function() {
         return attribution;
@@ -169,9 +195,8 @@ L.tileLayer.qud0().addTo(map);
 L.GridLayer.DebugCoords = L.GridLayer.extend({
     createTile: function (coords) {
         let tile = document.createElement('div');
-        let tileCoords = getTileCoords(coords);
 
-        tile.innerHTML = [coords.x, coords.y, coords.z].join(', ') + " " + `${tileCoords.x}.${tileCoords.y}`;
+        tile.innerHTML = [coords.x, coords.y, coords.z].join(', ');
         tile.style.outline = '1px solid red';
         return tile;
     }
