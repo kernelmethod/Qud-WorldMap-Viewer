@@ -66,7 +66,7 @@ namespace Kernelmethod.WorldMap {
                 return true;
 
             var z = Popup.AskNumber(
-                "What z-coordinate would you like to slice?"
+                "What z-coordinate would you like to slice?", Start: 10
             );
             if (z == null)
                 return true;
