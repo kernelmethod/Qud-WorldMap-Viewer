@@ -1,4 +1,5 @@
 const attribution = `<a href="https://www.cavesofqud.com/">Caves of Qud</a>`;
+const ZLEVEL = 10;
 
 /* Map element */
 const mapEl = document.getElementById("map");
@@ -120,7 +121,7 @@ map.on("zoomend", function()  {
 
 /********************* Tile layers ***********************/
 
-var worldMapOverlay = L.imageOverlay("worldmap/world.webp", bounds);
+var worldMapOverlay = L.imageOverlay("tiles/world.webp", bounds);
 worldMapOverlay.addTo(map);
 
 L.TileLayer.Qud1 = L.TileLayer.extend({
@@ -144,7 +145,7 @@ L.TileLayer.Qud1 = L.TileLayer.extend({
         x = Math.floor(x / normalization);
         y = tiledMapHeight_L1 + Math.floor(y / normalization);
 
-        return `/tiles/tile_1_${x}_${y}.webp`;
+        return `/tiles/tile_1_${x}_${y}_${ZLEVEL}.webp`;
     },
     getAttribution: function() {
         return attribution;
@@ -177,7 +178,7 @@ L.TileLayer.Qud0 = L.TileLayer.extend({
         x = Math.floor(x / normalization);
         y = tiledMapHeight_L0 + Math.floor(y / normalization);
 
-        const url = `/tiles/tile_0_${x}_${y}.webp`;
+        const url = `/tiles/tile_0_${x}_${y}_${ZLEVEL}.webp`;
         return url;
     },
     getAttribution: function() {

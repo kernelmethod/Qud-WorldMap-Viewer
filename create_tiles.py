@@ -4,7 +4,9 @@
 Create square tiles using zone images from the game.
 """
 
+import argparse
 import math
+import shutil
 from PIL import Image
 from pathlib import Path
 from tqdm import tqdm
@@ -17,6 +19,10 @@ ZONE_HEIGHT_PX = 25 * 24
 ZONE_WIDTH_PX = 80 * 16
 MAP_HEIGHT_PX = (25 * 3) * ZONE_HEIGHT_PX
 MAP_WIDTH_PX = (80 * 3) * ZONE_WIDTH_PX
+
+# Scale factor for second layer of tiles
+SCALE_FACTOR = 4
+LARGE_TILE_LENGTH = TILE_LENGTH * SCALE_FACTOR
 
 if MAP_HEIGHT_PX % TILE_LENGTH != 0:
     raise Exception("Tile length must divide height of world map in pixels")
@@ -34,16 +40,16 @@ def clamp(x: int, min: int, max: int) -> int:
         return max
     return x
 
-def get_zone_for_pixel(x: int, y: int):
+def get_zone_for_pixel(x: int, y: int, z: int) -> str:
     # Pixel is interpreted with (0, 0) in the top left of the world map
     wx = x // (ZONE_WIDTH_PX * 3)
     wy = y // (ZONE_HEIGHT_PX * 3)
     px = (x // ZONE_WIDTH_PX) % 3
     py = (y // ZONE_HEIGHT_PX) % 3
 
-    return f"JoppaWorld.{wx}.{wy}.{px}.{py}.10"
+    return f"JoppaWorld.{wx}.{wy}.{px}.{py}.{z}"
 
-def fetch_rectangle(bottom: tuple[int, int], top: tuple[int, int]) -> Image:
+def fetch_rectangle(bottom: tuple[int, int], top: tuple[int, int], z: int) -> Image:
     """Fetch a rectangle of pixels using the bounding box defined by the
     provided coordinates."""
 
@@ -62,8 +68,8 @@ def fetch_rectangle(bottom: tuple[int, int], top: tuple[int, int]) -> Image:
 
         while y < top[1]:
             # Get the zone containing this pixel
-            zoneid = get_zone_for_pixel(x, y)
-            zone_img = Image.open(Path("worldmap") / f"{zoneid}.webp")
+            zoneid = get_zone_for_pixel(x, y, z)
+            zone_img = Image.open(Path("worldmap") / f"{zoneid}.png")
 
             # Crop zone
             y_max = y + ZONE_HEIGHT_PX
@@ -94,56 +100,77 @@ def fetch_rectangle(bottom: tuple[int, int], top: tuple[int, int]) -> Image:
     # Return constructed tile
     return tile
 
-num_tiles = MAP_HEIGHT_PX * MAP_WIDTH_PX // (TILE_LENGTH**2)
-pbar_iterator = iter(pbar := tqdm(range(num_tiles)))
+def main(args) -> None:
+    num_tiles = MAP_HEIGHT_PX * MAP_WIDTH_PX // (TILE_LENGTH**2)
+    pbar_iterator = iter(pbar := tqdm(range(num_tiles)))
 
-(outdir := Path.cwd() / "tiles").mkdir(exist_ok=True)
+    (outdir := Path(args.output)).mkdir(exist_ok=True)
+    world = Image.open(Path("worldmap") / "world.png")
+    world.save(outdir / "world.webp", lossless=True)
 
-for x in range(0, MAP_WIDTH_PX // TILE_LENGTH):
-    for y in range(0, MAP_HEIGHT_PX // TILE_LENGTH):
-        if (outpath := outdir / f"tile_0_{x}_{y}.webp").exists():
-            next(pbar_iterator)
-            continue
+    for x in range(0, MAP_WIDTH_PX // TILE_LENGTH):
+        for y in range(0, MAP_HEIGHT_PX // TILE_LENGTH):
+            if (outpath := outdir / f"tile_0_{x}_{y}_{args.zlevel}.webp").exists():
+                next(pbar_iterator)
+                continue
 
-        pixel_x = x * TILE_LENGTH
-        pixel_y = y * TILE_LENGTH
+            pixel_x = x * TILE_LENGTH
+            pixel_y = y * TILE_LENGTH
 
-        upper_corner = (pixel_x, pixel_y)
-        lower_corner = (pixel_x + TILE_LENGTH, pixel_y + TILE_LENGTH)
+            upper_corner = (pixel_x, pixel_y)
+            lower_corner = (pixel_x + TILE_LENGTH, pixel_y + TILE_LENGTH)
 
-        tile = fetch_rectangle(upper_corner, lower_corner)
-        tile.save(outpath, lossless=True)
-        i = next(pbar_iterator)
+            tile = fetch_rectangle(upper_corner, lower_corner, args.zlevel)
+            tile.save(outpath, lossless=True)
+            i = next(pbar_iterator)
 
-# Recombine tiles into next tier
-SCALE_FACTOR = 4
-LARGE_TILE_LENGTH = TILE_LENGTH * SCALE_FACTOR
+    # Recombine tiles into next tier
 
-num_tiles = math.ceil(MAP_HEIGHT_PX / LARGE_TILE_LENGTH) * math.ceil(MAP_WIDTH_PX / LARGE_TILE_LENGTH)
-pbar_iterator = iter(tqdm(range(num_tiles)))
+    num_tiles = math.ceil(MAP_HEIGHT_PX / LARGE_TILE_LENGTH) * math.ceil(MAP_WIDTH_PX / LARGE_TILE_LENGTH)
+    pbar_iterator = iter(tqdm(range(num_tiles)))
 
-for x in range(0, math.ceil(MAP_WIDTH_PX / LARGE_TILE_LENGTH)):
-    for y in range(0, math.ceil(MAP_HEIGHT_PX / LARGE_TILE_LENGTH)):
-        if (outpath := outdir / f"tile_1_{x}_{y}.webp").exists():
-            continue
+    for x in range(0, math.ceil(MAP_WIDTH_PX / LARGE_TILE_LENGTH)):
+        for y in range(0, math.ceil(MAP_HEIGHT_PX / LARGE_TILE_LENGTH)):
+            if (outpath := outdir / f"tile_1_{x}_{y}_{args.zlevel}.webp").exists():
+                continue
 
-        tile = Image.new("RGBA", (TILE_LENGTH, TILE_LENGTH), (255, 0, 0, 0))
+            tile = Image.new("RGBA", (TILE_LENGTH, TILE_LENGTH), (255, 0, 0, 0))
 
-        tile_x_start = 4 * x
-        tile_x_end = min(4 * x + 4, MAP_WIDTH_PX // TILE_LENGTH)
-        tile_y_start = 4 * y
-        tile_y_end = min(4 * y + 4, MAP_HEIGHT_PX // TILE_LENGTH)
+            tile_x_start = 4 * x
+            tile_x_end = min(4 * x + 4, MAP_WIDTH_PX // TILE_LENGTH)
+            tile_y_start = 4 * y
+            tile_y_end = min(4 * y + 4, MAP_HEIGHT_PX // TILE_LENGTH)
 
-        for tile_x in range(tile_x_start, tile_x_end):
-            for tile_y in range(tile_y_start, tile_y_end):
-                subtile_path = outdir / f"tile_0_{tile_x}_{tile_y}.webp"
+            for tile_x in range(tile_x_start, tile_x_end):
+                for tile_y in range(tile_y_start, tile_y_end):
+                    subtile_path = outdir / f"tile_0_{tile_x}_{tile_y}_{args.zlevel}.webp"
 
-                corner_x = (tile_x - tile_x_start) * (TILE_LENGTH // SCALE_FACTOR)
-                corner_y = (tile_y - tile_y_start) * (TILE_LENGTH // SCALE_FACTOR)
+                    corner_x = (tile_x - tile_x_start) * (TILE_LENGTH // SCALE_FACTOR)
+                    corner_y = (tile_y - tile_y_start) * (TILE_LENGTH // SCALE_FACTOR)
 
-                subtile = Image.open(subtile_path)
-                subtile = subtile.resize((TILE_LENGTH // SCALE_FACTOR, TILE_LENGTH // SCALE_FACTOR), Image.Resampling.LANCZOS)
-                tile.paste(subtile, (corner_x, corner_y))
+                    subtile = Image.open(subtile_path)
+                    subtile = subtile.resize((TILE_LENGTH // SCALE_FACTOR, TILE_LENGTH // SCALE_FACTOR), Image.Resampling.LANCZOS)
+                    tile.paste(subtile, (corner_x, corner_y))
 
-        tile.save(outpath)
-        i = next(pbar_iterator)
+            tile.save(outpath)
+            i = next(pbar_iterator)
+
+
+if __name__ == "__main__":
+    parser = argparse.ArgumentParser()
+    parser.add_argument(
+        "-o",
+        "--output",
+        default="./tiles",
+        help="Default directory to write output to"
+    )
+    parser.add_argument(
+        "-z",
+        "--zlevel",
+        type=int,
+        default=10,
+        help="z-level to create tiles for"
+    )
+
+    args = parser.parse_args()
+    main(args)
